@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mi Contabilidad — GPVC</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Firebase SDKs (compat) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <style>
 :root{
   --bg:#f0f2f7;--white:#fff;--surface:#e8eaf0;--border:#d4d7e3;--border-strong:#b0b5c8;
@@ -1050,61 +1054,217 @@ let categories={
 };
 
 // ── INIT ───────────────────────────────────────────────────────────────
-// ── PERSISTENCIA (localStorage) ──────────────────────────────────────
-const STORAGE_KEY='gpvc_data_v1';
+// ── FIREBASE CONFIG ──────────────────────────────────────────────────
+const firebaseConfig={
+  apiKey:"AIzaSyBy8Iud7Ex5bhE_r1Tlg1fM8mUHx76JAlk",
+  authDomain:"gpvc-contabilidad.firebaseapp.com",
+  projectId:"gpvc-contabilidad",
+  storageBucket:"gpvc-contabilidad.firebasestorage.app",
+  messagingSenderId:"649219982931",
+  appId:"1:649219982931:web:35b397d4903996f08e68a6"
+};
+const ADMIN_EMAIL='gilardi.giulio@gmail.com';
+let currentUser=null,isAdmin=false;
+let unsubscribeTx=null,unsubscribeCpx=null,unsubNotif=null;
 
-function saveData(){
-  try{
-    localStorage.setItem(STORAGE_KEY,JSON.stringify({
-      transactions,capexItems,capitalInicial,balanceDate,categories
-    }));
-  }catch(e){console.warn('No se pudo guardar:',e);}
+firebase.initializeApp(firebaseConfig);
+const auth=firebase.auth();
+const db=firebase.firestore();
+
+// ── LOGIN ─────────────────────────────────────────────────────────────
+function renderLoginScreen(){
+  document.body.innerHTML=`
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;
+                background:#f0f2f7;padding:20px;font-family:'Inter',sans-serif">
+      <div style="background:#fff;border-radius:20px;padding:36px 28px;
+                  box-shadow:0 8px 32px rgba(0,0,0,.12);width:100%;max-width:380px">
+        <div style="text-align:center;margin-bottom:28px">
+          <div style="font-size:48px">🏥</div>
+          <div style="font-size:22px;font-weight:700;color:#1e2030;margin-top:8px">Mi Contabilidad</div>
+          <div style="font-size:13px;color:#8c91aa;margin-top:4px">Gilardi Private Vascular Care SAC</div>
+        </div>
+        <div id="login-err" style="display:none;background:#fdf2f1;border:1px solid #f0b0aa;
+             border-radius:10px;padding:12px;font-size:14px;color:#c0392b;margin-bottom:14px;text-align:center"></div>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <input id="li-email" type="email" placeholder="Correo electrónico"
+            style="border:2px solid #d4d7e3;border-radius:10px;padding:14px;font-size:16px;
+                   font-family:'Inter',sans-serif;outline:none;width:100%"/>
+          <input id="li-pass" type="password" placeholder="Contraseña"
+            style="border:2px solid #d4d7e3;border-radius:10px;padding:14px;font-size:16px;
+                   font-family:'Inter',sans-serif;outline:none;width:100%"/>
+          <button onclick="doLogin()" id="li-btn"
+            style="background:#2a5bd7;color:#fff;border:none;border-radius:12px;padding:16px;
+                   font-size:17px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif">
+            Ingresar →
+          </button>
+        </div>
+        <div style="text-align:center;margin-top:18px;font-size:12px;color:#8c91aa">
+          ¿Olvidó su contraseña?
+          <a href="#" onclick="doReset()" style="color:#2a5bd7;font-weight:600;text-decoration:none">Recuperar</a>
+        </div>
+      </div>
+    </div>`;
+  setTimeout(()=>{
+    document.getElementById('li-pass')?.addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
+  },50);
 }
 
-function loadData(){
-  try{
-    const raw=localStorage.getItem(STORAGE_KEY);
-    if(!raw) return false;
-    const d=JSON.parse(raw);
-    if(d.transactions)   transactions=d.transactions;
-    if(d.capexItems)     capexItems=d.capexItems;
-    if(d.capitalInicial) capitalInicial=d.capitalInicial;
-    if(d.balanceDate)    balanceDate=d.balanceDate;
-    if(d.categories)     categories=d.categories;
-    return true;
-  }catch(e){console.warn('No se pudo cargar:',e); return false;}
+async function doLogin(){
+  const email=document.getElementById('li-email').value.trim();
+  const pass=document.getElementById('li-pass').value;
+  const btn=document.getElementById('li-btn');
+  if(!email||!pass){showLoginErr('Complete su correo y contraseña.');return;}
+  btn.textContent='Ingresando…';btn.disabled=true;
+  try{await auth.signInWithEmailAndPassword(email,pass);}
+  catch(e){
+    btn.textContent='Ingresar →';btn.disabled=false;
+    const m={'auth/wrong-password':'Contraseña incorrecta.',
+      'auth/user-not-found':'No existe cuenta con ese correo.',
+      'auth/invalid-email':'El correo no es válido.',
+      'auth/invalid-credential':'Correo o contraseña incorrectos.',
+      'auth/too-many-requests':'Demasiados intentos. Espere unos minutos.'};
+    showLoginErr(m[e.code]||'Error al ingresar. Intente de nuevo.');
+  }
 }
 
-// ── INIT ──────────────────────────────────────────────────────────────
-const today=todayStr();
-const y=new Date().getFullYear();
-document.getElementById('txdate').value=today;
-document.getElementById('cap-date').value=today;
-document.getElementById('cap-init-date').value=today;
-document.getElementById('pnl-from').value=`${y}-01-01`;
-document.getElementById('pnl-to').value=`${y}-12-31`;
+async function doReset(){
+  const email=document.getElementById('li-email')?.value.trim();
+  if(!email){showLoginErr('Ingrese su correo primero.');return;}
+  try{await auth.sendPasswordResetEmail(email);showLoginErr('✅ Enviamos un correo para restablecer su contraseña.');}
+  catch(e){showLoginErr('No se pudo enviar el correo.');}
+}
 
-// Cargar datos guardados
-const hadData=loadData();
-document.getElementById('bal-date-val').value=balanceDate||today;
-if(!balanceDate) balanceDate=today;
+function showLoginErr(msg){const el=document.getElementById('login-err');if(el){el.textContent=msg;el.style.display='block';}}
 
-refreshCats();
-addFinRow();
-
-if(hadData){
-  if(transactions.length){
-    document.getElementById('tx-list').innerHTML='';
-    [...transactions].reverse().forEach(tx=>renderTx(tx,true));
+auth.onAuthStateChanged(async user=>{
+  if(user){currentUser=user;isAdmin=(user.email===ADMIN_EMAIL);await initApp();}
+  else{
+    currentUser=null;isAdmin=false;
+    [unsubscribeTx,unsubscribeCpx,unsubNotif].forEach(u=>{if(u)u();});
+    unsubscribeTx=unsubscribeCpx=unsubNotif=null;
+    renderLoginScreen();
   }
-  if(capexItems.length){
-    document.getElementById('cpx-list').innerHTML='';
-    [...capexItems].reverse().forEach(cap=>renderCapex(cap,true));
-  }
+});
+
+// ── FIREBASE CRUD ─────────────────────────────────────────────────────
+async function fbSaveTx(tx){await db.collection('transactions').doc(String(tx.id)).set(tx);}
+async function fbDeleteTx(id){await db.collection('transactions').doc(String(id)).delete();}
+async function fbUpdateTx(id,data){await db.collection('transactions').doc(String(id)).update(data);}
+async function fbSaveCapex(cap){await db.collection('capexItems').doc(String(cap.id)).set(cap);}
+async function fbDeleteCapex(id){await db.collection('capexItems').doc(String(id)).delete();}
+async function fbUpdateCapex(id,data){await db.collection('capexItems').doc(String(id)).update(data);}
+async function fbSaveMeta(key,value){await db.collection('meta').doc(key).set({value});}
+async function fbGetMeta(key){const d=await db.collection('meta').doc(key).get();return d.exists?d.data().value:null;}
+function saveData(){/* Firebase handles persistence */}
+
+// ── REAL-TIME LISTENERS ───────────────────────────────────────────────
+function startListeners(){
+  unsubscribeTx=db.collection('transactions').orderBy('date','desc').onSnapshot(snap=>{
+    transactions=[];
+    snap.forEach(doc=>transactions.push(doc.data()));
+    const list=document.getElementById('tx-list');
+    if(!list) return;
+    list.innerHTML='';
+    if(!transactions.length)
+      list.innerHTML='<div class="empty"><div class="ei">📒</div><p>Aún no hay movimientos.<br>Vaya a <b>Registrar</b> para añadir el primero.</p></div>';
+    else transactions.forEach(tx=>renderTx(tx,false));
+    updateSummary();
+    if(document.getElementById('rpt-pnl')?.style.display!=='none') renderPnL();
+    if(document.getElementById('rpt-balance')?.style.display!=='none') renderBalance();
+  });
+  unsubscribeCpx=db.collection('capexItems').orderBy('date','desc').onSnapshot(snap=>{
+    capexItems=[];
+    snap.forEach(doc=>capexItems.push(doc.data()));
+    const list=document.getElementById('cpx-list');
+    if(!list) return;
+    list.innerHTML='';
+    if(!capexItems.length)
+      list.innerHTML='<div class="empty"><div class="ei">🏗</div><p>Sin activos registrados.</p></div>';
+    else capexItems.forEach(cap=>renderCapex(cap,false));
+  });
+}
+
+// ── NOTIFICATIONS ─────────────────────────────────────────────────────
+function notifyAdmin(msg){
+  if(!currentUser) return;
+  db.collection('notifications').add({msg,by:currentUser.email,at:Date.now(),seen:false});
+}
+
+function startNotifListener(){
+  if(!isAdmin) return;
+  unsubNotif=db.collection('notifications').where('seen','==',false).onSnapshot(snap=>{
+    const count=snap.size;
+    let badge=document.getElementById('notif-badge');
+    if(!badge){
+      badge=document.createElement('div');badge.id='notif-badge';
+      badge.style.cssText=`position:fixed;top:70px;right:14px;z-index:300;background:#c0392b;
+        color:#fff;border-radius:20px;padding:6px 14px;font-size:13px;font-weight:700;
+        cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.2);display:none;font-family:'Inter',sans-serif`;
+      badge.onclick=showNotifications;document.body.appendChild(badge);
+    }
+    if(count>0){badge.textContent=`🔔 ${count} movimiento${count>1?'s':''} nuevo${count>1?'s':''}`;badge.style.display='block';}
+    else badge.style.display='none';
+  });
+}
+
+async function showNotifications(){
+  const snap=await db.collection('notifications').where('seen','==',false).orderBy('at','desc').get();
+  if(snap.empty){showToast('Sin notificaciones nuevas.');return;}
+  const items=[];snap.forEach(doc=>items.push({id:doc.id,...doc.data()}));
+  let msg=items.slice(0,8).map(n=>`• ${n.msg}\n  Por: ${n.by}`).join('\n\n');
+  if(items.length>8) msg+=`\n\n…y ${items.length-8} más`;
+  alert('📋 Movimientos recientes:\n\n'+msg);
+  const batch=db.batch();snap.docs.forEach(doc=>batch.update(doc.ref,{seen:true}));
+  await batch.commit();
+}
+
+function canDelete(item){
+  if(isAdmin) return true;
+  return (Date.now()-(item.createdAt||item.id))<5*60*1000;
+}
+
+// ── APP INIT (llamado tras autenticación) ─────────────────────────────
+async function initApp(){
+  const today=todayStr(),y=new Date().getFullYear();
+  document.getElementById('txdate').value=today;
+  document.getElementById('cap-date').value=today;
+  document.getElementById('cap-init-date').value=today;
+  document.getElementById('pnl-from').value=`${y}-01-01`;
+  document.getElementById('pnl-to').value=`${y}-12-31`;
+
+  const savedCapital=await fbGetMeta('capitalInicial');
+  const savedBalDate=await fbGetMeta('balanceDate');
+  const savedCats=await fbGetMeta('categories');
+  if(savedCapital) capitalInicial=savedCapital;
+  if(savedBalDate) balanceDate=savedBalDate;
+  if(savedCats) categories=savedCats;
+
+  document.getElementById('bal-date-val').value=balanceDate||today;
+  if(!balanceDate) balanceDate=today;
+  refreshCats();addFinRow();
   if(!capitalInicial) renderBalancePlaceholder();
-  else renderBalance();
-}else{
-  renderBalancePlaceholder();
+
+  if(!document.getElementById('logout-btn')){
+    const wrap=document.createElement('div');
+    wrap.style.cssText='display:flex;align-items:center;gap:8px;flex-shrink:0';
+    const role=isAdmin?'👑 Admin':'✏️ Sec.';
+    wrap.innerHTML=`<span style="font-size:11px;color:rgba(255,255,255,.75)">${role}</span>
+      <button id="logout-btn" onclick="doLogout()"
+        style="font-size:12px;font-weight:700;color:rgba(255,255,255,.85);white-space:nowrap;
+               background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);
+               border-radius:8px;padding:5px 11px;cursor:pointer;font-family:'Inter',sans-serif">
+        Salir</button>`;
+    document.querySelector('header').appendChild(wrap);
+  }
+  startListeners();startNotifListener();
+}
+
+async function doLogout(){
+  if(!confirm('¿Cerrar sesión?')) return;
+  [unsubscribeTx,unsubscribeCpx,unsubNotif].forEach(u=>{if(u)u();});
+  unsubscribeTx=unsubscribeCpx=unsubNotif=null;
+  document.getElementById('logout-btn')?.parentElement?.remove();
+  await auth.signOut();
 }
 
 document.getElementById('txdate').addEventListener('change',()=>{if(document.getElementById('currency').value!=='PEN')fetchTC('opex');});
@@ -1290,7 +1450,7 @@ async function submitTx(){
   const notes=document.getElementById('notes').value.trim();
   if(!desc||!category||!date||!(raw>0)){showToast('Complete todos los campos.');return;}
   const btn=document.getElementById('submit-btn');
-  btn.disabled=true; btn.textContent='Procesando…';
+  btn.disabled=true;btn.textContent='Procesando…';
   const tcRate=currency==='PEN'?1:getTC('opex');
   const tcSource=currency==='PEN'?'':document.getElementById('tc-src').textContent;
   const pen=raw*tcRate;
@@ -1300,26 +1460,20 @@ async function submitTx(){
   if(willUseAI) addLoader('tx-list','ld-tx',`Generando asientos para "${desc}"…`);
   try{
     const{entries,source}=await getEntries(txData);
-    const tx={id:Date.now(),type:txType,desc,category,date,base,igv,total,igvApplies:igvOn,currency,rawAmount:raw,tcRate,tcSource,cpCode,cpName,notes,entries,entrySource:source};
-    transactions.unshift(tx);
+    const tx={id:Date.now(),createdAt:Date.now(),createdBy:currentUser?.email||'',
+      type:txType,desc,category,date,base,igv,total,igvApplies:igvOn,
+      currency,rawAmount:raw,tcRate,tcSource,cpCode,cpName,notes,entries,entrySource:source};
+    await fbSaveTx(tx);
     document.getElementById('ld-tx')?.remove();
-    renderTx(tx,true); updateAll(); clearOpex();
+    clearOpex();
     const srcMsg=source==='ai'?' (IA)':source==='cache'?' (caché)':' ⚡';
     showToast('✅ Movimiento guardado'+srcMsg);
+    notifyAdmin(`Nuevo ${txType==='income'?'ingreso':'gasto'}: ${desc} — ${fmtPEN(total)}`);
     goPage('movimientos');
-  }catch(e){document.getElementById('ld-tx')?.remove();showToast('Error al procesar. Intente de nuevo.');console.error(e);}
-  btn.disabled=false; btn.textContent='✅ Guardar movimiento';
-}
-
-async function callAI(prompt){
-  const r=await fetch('https://api.anthropic.com/v1/messages',{
-    method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})
-  });
-  if(!r.ok) throw new Error('API '+r.status);
-  const d=await r.json();
-  const txt=d.content.map(b=>b.text||'').join('');
-  return JSON.parse(txt.replace(/```json|```/g,'').trim());
+  }catch(e){
+    document.getElementById('ld-tx')?.remove();
+    showToast('❌ Error: '+e.message);console.error(e);
+  }finally{btn.disabled=false;btn.textContent='✅ Guardar movimiento';}
 }
 
 function buildPrompt(tx){
@@ -1414,11 +1568,10 @@ function toggleEnt(id){
 
 function deleteTx(id){
   closeDot(id);
+  const tx=transactions.find(t=>t.id===id);
+  if(!canDelete(tx||{id})){showToast('⏱ Solo puede borrar en los primeros 5 min. Pida al administrador.');return;}
   if(!confirm('¿Eliminar este movimiento?')) return;
-  transactions=transactions.filter(t=>t.id!==id);
-  document.getElementById(`tx-${id}`)?.remove();
-  if(!transactions.length) document.getElementById('tx-list').innerHTML=`<div class="empty"><div class="ei">📒</div><p>Sin movimientos aún.</p></div>`;
-  updateAll();
+  fbDeleteTx(id).then(()=>showToast('🗑 Movimiento eliminado.')).catch(e=>showToast('❌ '+e.message));
 }
 
 // ── EDIT TX ────────────────────────────────────────────────────────────
@@ -1459,7 +1612,7 @@ function refreshEditCats(type,selected=''){
   if(selected&&list.includes(selected)) sel.value=selected;
 }
 
-async function saveEdit(){
+async async function saveEdit(){
   const id=parseInt(document.getElementById('edit-id').value);
   const idx=transactions.findIndex(t=>t.id===id);
   if(idx<0) return;
@@ -1488,9 +1641,10 @@ async function saveEdit(){
     transactions[idx]=updated;
     const old=document.getElementById(`tx-${id}`);
     if(old){const tmp=document.createElement('div');tmp.id=`tx-${id}-tmp`;old.replaceWith(tmp);renderTx(updated,false);document.getElementById(`tx-${id}`)&&tmp.replaceWith(document.getElementById(`tx-${id}`));}
-    closeModal('m-edit'); updateAll(); showToast('✅ Movimiento actualizado.');
-  }catch(e){showToast('Error al guardar.');console.error(e);}
-  btn.disabled=false; btn.textContent='Guardar';
+    await fbUpdateTx(tx.id,tx);
+    closeModal('m-edit');showToast('✅ Movimiento actualizado.');
+  }catch(e){showToast('Error al guardar: '+e.message);console.error(e);}
+  btn.disabled=false;btn.textContent='Guardar';
 }
 
 function clearOpex(){
@@ -1631,11 +1785,15 @@ async function submitCapex(){
   const sched=calcDep(base,years,method,residual);
   const financing=getFinancingBreakdown(totalPEN);
   const cap={id:Date.now(),name,cat,date,base,igv,total:totalPEN,igvApplies:capIgvOn,currency,rawAmount:raw,tcRate,tcSource,years,method,residual,sched,financing,notes,acqYear:new Date(date).getFullYear()};
-  capexItems.unshift(cap);
-  renderCapex(cap,true); updateAll(); clearCapex();
-  showToast('✅ Activo registrado.');
-  goPage('activos');
-  btn.disabled=false; btn.textContent='✅ Registrar activo';
+  cap.createdAt=Date.now(); cap.createdBy=currentUser?.email||'';
+  try{
+    await fbSaveCapex(cap);
+    clearCapex();
+    showToast('✅ Activo registrado.');
+    notifyAdmin(`Nuevo activo: ${cap.name} — ${fmtPEN(cap.base)}`);
+    goPage('activos');
+  }catch(e){showToast('❌ Error: '+e.message);console.error(e);}
+  finally{btn.disabled=false; btn.textContent='✅ Registrar activo';}
 }
 
 function renderCapex(cap,prepend=false){
@@ -1713,16 +1871,17 @@ function saveCapexEdit(){
   capexItems[idx]=updated;
   const old=document.getElementById(`cap-${id}`);
   if(old){const tmp=document.createElement('div');tmp.id=`cap-${id}-tmp`;old.replaceWith(tmp);renderCapex(updated,false);document.getElementById(`cap-${id}`)&&tmp.replaceWith(document.getElementById(`cap-${id}`));}
-  closeModal('m-edit-cap'); updateAll(); showToast('✅ Activo actualizado.');
+  fbUpdateCapex(cap.id, cap)
+    .then(()=>{closeModal('m-edit-cap'); showToast('✅ Activo actualizado.');})
+    .catch(e=>showToast('❌ Error: '+e.message));
 }
 
 function deleteCap(id){
   closeDotCap(id);
+  const cap=capexItems.find(c=>c.id===id);
+  if(!canDelete(cap||{id})){showToast('⏱ Solo puede borrar en los primeros 5 min. Pida al administrador.');return;}
   if(!confirm('¿Eliminar este activo?')) return;
-  capexItems=capexItems.filter(c=>c.id!==id);
-  document.getElementById(`cap-${id}`)?.remove();
-  if(!capexItems.length) document.getElementById('cpx-list').innerHTML=`<div class="empty"><div class="ei">🏗</div><p>Sin activos registrados.</p></div>`;
-  updateAll();
+  fbDeleteCapex(id).then(()=>showToast('🗑 Activo eliminado.')).catch(e=>showToast('❌ '+e.message));
 }
 
 function clearCapex(){
@@ -1747,12 +1906,14 @@ function saveCapital(){
   const date=document.getElementById('cap-init-date').value;
   if(!(val>0)){showToast('Ingrese un monto válido.');return;}
   capitalInicial={amount:val,date};
+  fbSaveMeta('capitalInicial',capitalInicial);
   closeModal('m-capital'); updateAll();
   showToast(`Capital S/ ${val.toFixed(2)} registrado.`);
 }
 
 function applyBalDate(){
   balanceDate=document.getElementById('bal-date-val').value;
+  fbSaveMeta('balanceDate',balanceDate);
   closeModal('m-bal-date'); renderBalance();
 }
 
@@ -2118,7 +2279,9 @@ function saveCategory(){
   categories[type].push(name);
   if(type===txType) refreshCats();
   document.getElementById('nc-name').value='';
-  closeModal('m-cat'); showToast(`Categoría "${name}" agregada.`);
+  fbSaveMeta('categories',categories);
+  fbSaveMeta('categories',categories);
+  closeModal('m-cat');showToast(`Categoría "${name}" agregada.`);
 }
 
 // ── MODAL HELPERS ──────────────────────────────────────────────────────
