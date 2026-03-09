@@ -333,6 +333,30 @@ textarea{resize:vertical;min-height:70px}
 .src-badge.ai{color:var(--amber);background:var(--amber-light)}
 
 /* Scrollbar */
+
+/* ── FLUJO DE CAJA ── */
+.flujo-year-summary{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:18px}
+.fys-card{background:var(--white);border-radius:var(--r);padding:16px;box-shadow:var(--sh);border:1px solid var(--border);text-align:center}
+.fys-card .fys-label{font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.fys-card .fys-val{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.flujo-table{width:100%;border-collapse:collapse;background:var(--white);border-radius:var(--r);overflow:hidden;box-shadow:var(--sh);border:1px solid var(--border)}
+.flujo-table thead tr{background:var(--surface)}
+.flujo-table th{padding:11px 14px;font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;text-align:right;border-bottom:2px solid var(--border)}
+.flujo-table th:first-child{text-align:left}
+.flujo-table td{padding:12px 14px;font-size:14px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;vertical-align:middle}
+.flujo-table td:first-child{text-align:left;font-weight:700;color:var(--text)}
+.flujo-table tr:last-child td{border-bottom:none}
+.flujo-table tr:hover td{background:var(--surface)}
+.flujo-table .ft-inc{color:var(--green);font-weight:700}
+.flujo-table .ft-exp{color:var(--red);font-weight:700}
+.flujo-table .ft-bal-pos{color:var(--green);font-weight:700}
+.flujo-table .ft-bal-neg{color:var(--red);font-weight:700}
+.flujo-table .ft-saldo-pos{color:var(--accent);font-weight:700}
+.flujo-table .ft-saldo-neg{color:var(--red);font-weight:700}
+.flujo-bar-wrap{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.flujo-bar{height:8px;border-radius:4px;min-width:3px;display:inline-block;vertical-align:middle}
+.flujo-mes-vacio{color:var(--text-3);font-style:italic;font-weight:400;font-size:13px}
+.flujo-total-row td{background:var(--surface)!important;font-weight:700;font-size:14px;border-top:2px solid var(--border-strong)}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:2px}
 </style>
 </head>
@@ -759,6 +783,9 @@ textarea{resize:vertical;min-height:70px}
     <button class="rep-pill" id="rpill-balance" onclick="showReport('balance')">
       <span class="rp-icon">⚖️</span> Balance General
     </button>
+    <button class="rep-pill" id="rpill-flujo" onclick="showReport('flujo')">
+      <span class="rp-icon">💧</span> Flujo de Caja
+    </button>
     <button class="rep-pill" onclick="exportCSV()">
       <span class="rp-icon">📥</span> Exportar CSV
     </button>
@@ -784,6 +811,17 @@ textarea{resize:vertical;min-height:70px}
   <!-- Balance -->
   <div id="rpt-balance" style="display:none">
     <div id="balance-out"></div>
+  </div>
+
+  <!-- Flujo de Caja -->
+  <div id="rpt-flujo" style="display:none">
+    <div class="pnl-ctrl">
+      <label>Año:</label>
+      <select id="flujo-year" onchange="renderFlujo()" style="width:100px;font-size:14px;padding:9px 10px"></select>
+    </div>
+    <div id="flujo-out">
+      <div class="empty"><div class="ei">💧</div><p>El Flujo de Caja aparecerá aquí.</p></div>
+    </div>
   </div>
 </div>
 
@@ -965,13 +1003,15 @@ function goPage(name){
 }
 
 function showReport(type){
-  document.getElementById('rpt-pnl').style.display   = type==='pnl'     ? '' : 'none';
-  document.getElementById('rpt-balance').style.display = type==='balance' ? '' : 'none';
+  document.getElementById('rpt-pnl').style.display     = type==='pnl'     ? '' : 'none';
+  document.getElementById('rpt-balance').style.display  = type==='balance' ? '' : 'none';
+  document.getElementById('rpt-flujo').style.display    = type==='flujo'   ? '' : 'none';
   document.querySelectorAll('.rep-pill').forEach(p=>p.classList.remove('active'));
   const pill=document.getElementById('rpill-'+type);
   if(pill) pill.classList.add('active');
-  if(type==='pnl') renderPnL();
+  if(type==='pnl')   renderPnL();
   if(type==='balance') renderBalance();
+  if(type==='flujo') { initFlujoYear(); renderFlujo(); }
 }
 
 // Alias so old tab calls still work (renderBalance/renderPnL called directly from balance buttons)
@@ -1739,6 +1779,147 @@ function capexBV(){
     else if(i>=c.sched.length&&c.sched.length) acc+=c.sched[c.sched.length-1].acc;
   });
   return{cost,acc,net:cost-acc};
+}
+
+
+// ── FLUJO DE CAJA ──────────────────────────────────────────────────────
+function initFlujoYear(){
+  const sel=document.getElementById('flujo-year');
+  const currentY=new Date().getFullYear();
+  // Collect all years from transactions
+  const years=new Set([currentY]);
+  transactions.forEach(t=>{if(t.date) years.add(parseInt(t.date.slice(0,4)));});
+  const sorted=[...years].sort((a,b)=>b-a);
+  const prev=sel.value;
+  sel.innerHTML=sorted.map(y=>`<option value="${y}">${y}</option>`).join('');
+  if(prev&&sorted.includes(parseInt(prev))) sel.value=prev;
+}
+
+function renderFlujo(){
+  const el=document.getElementById('flujo-out');
+  const selY=parseInt(document.getElementById('flujo-year')?.value)||new Date().getFullYear();
+
+  if(!transactions.length){
+    el.innerHTML=`<div class="empty"><div class="ei">💧</div><p>Aún no hay movimientos registrados.</p></div>`;
+    return;
+  }
+
+  const MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+               'Julio','Agosto','Setiembre','Octubre','Noviembre','Diciembre'];
+
+  // Build monthly buckets
+  const months=Array.from({length:12},(_,i)=>({
+    mes:MESES[i], num:i+1,
+    entradas:0, salidas:0
+  }));
+
+  transactions.forEach(t=>{
+    if(!t.date) return;
+    const d=new Date(t.date+'T00:00:00');
+    if(d.getFullYear()!==selY) return;
+    const m=d.getMonth(); // 0-11
+    if(t.type==='income')  months[m].entradas+=t.total;
+    if(t.type==='expense') months[m].salidas +=t.total;
+    // assets: don't count as income or expense in cash flow
+  });
+
+  // Year totals
+  const totEntradas=months.reduce((s,m)=>s+m.entradas,0);
+  const totSalidas =months.reduce((s,m)=>s+m.salidas,0);
+  const totNeto    =totEntradas-totSalidas;
+
+  // Running balance (starting from capital if available)
+  let saldo=capitalInicial?capitalInicial.amount:0;
+
+  // Summary cards
+  const summaryHtml=`
+    <div class="flujo-year-summary">
+      <div class="fys-card">
+        <div class="fys-label">💚 Total entradas</div>
+        <div class="fys-val" style="color:var(--green)">${fmtPEN(totEntradas)}</div>
+      </div>
+      <div class="fys-card">
+        <div class="fys-label">❤️ Total salidas</div>
+        <div class="fys-val" style="color:var(--red)">${fmtPEN(totSalidas)}</div>
+      </div>
+      <div class="fys-card" style="background:${totNeto>=0?'var(--green-light)':'var(--red-light)'};border-color:${totNeto>=0?'var(--green-border)':'var(--red-border)'}">
+        <div class="fys-label">🏁 Neto del año</div>
+        <div class="fys-val" style="color:${totNeto>=0?'var(--green)':'var(--red)'}">${totNeto>=0?'+':''}${fmtPEN(totNeto)}</div>
+      </div>
+    </div>`;
+
+  // Monthly rows
+  const maxVal=Math.max(...months.map(m=>Math.max(m.entradas,m.salidas)),1);
+
+  const rowsHtml=months.map(m=>{
+    const neto=m.entradas-m.salidas;
+    saldo+=neto;
+    const vacio=m.entradas===0&&m.salidas===0;
+
+    const barEnt=Math.round((m.entradas/maxVal)*60);
+    const barSal=Math.round((m.salidas/maxVal)*60);
+
+    return `<tr>
+      <td>${m.mes}</td>
+      <td>
+        ${vacio?`<span class="flujo-mes-vacio">—</span>`:
+        `<div class="flujo-bar-wrap">
+          <span class="ft-inc">${fmtPEN(m.entradas)}</span>
+          <span class="flujo-bar" style="width:${barEnt}px;background:var(--green);opacity:.7"></span>
+        </div>`}
+      </td>
+      <td>
+        ${vacio?`<span class="flujo-mes-vacio">—</span>`:
+        `<div class="flujo-bar-wrap">
+          <span class="ft-exp">${fmtPEN(m.salidas)}</span>
+          <span class="flujo-bar" style="width:${barSal}px;background:var(--red);opacity:.7"></span>
+        </div>`}
+      </td>
+      <td class="${vacio?'flujo-mes-vacio':neto>=0?'ft-bal-pos':'ft-bal-neg'}">
+        ${vacio?'—':(neto>=0?'+':'')+fmtPEN(neto)}
+      </td>
+      <td class="${saldo>=0?'ft-saldo-pos':'ft-saldo-neg'}">${fmtPEN(saldo)}</td>
+    </tr>`;
+  }).join('');
+
+  const tableHtml=`
+    <div class="stmt-card">
+      <div class="stmt-head">
+        <h3>Flujo de Caja</h3>
+        <span class="company">Gilardi Private Vascular Care SAC</span>
+        <span class="period">Año ${selY} · Método directo · Montos totales (incluye IGV)</span>
+      </div>
+      <div style="overflow-x:auto;padding:0">
+        <table class="flujo-table">
+          <thead>
+            <tr>
+              <th style="text-align:left">Mes</th>
+              <th>💚 Entradas</th>
+              <th>❤️ Salidas</th>
+              <th>Neto del mes</th>
+              <th>💰 Saldo acumulado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+          <tfoot>
+            <tr class="flujo-total-row">
+              <td>TOTAL ${selY}</td>
+              <td class="ft-inc">${fmtPEN(totEntradas)}</td>
+              <td class="ft-exp">${fmtPEN(totSalidas)}</td>
+              <td class="${totNeto>=0?'ft-bal-pos':'ft-bal-neg'}">${totNeto>=0?'+':''}${fmtPEN(totNeto)}</td>
+              <td class="${saldo>=0?'ft-saldo-pos':'ft-saldo-neg'}">${fmtPEN(saldo)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      ${!capitalInicial?`<div style="padding:10px 16px;font-size:12px;color:var(--text-3);border-top:1px solid var(--border)">
+        💡 El saldo acumulado es relativo al primer movimiento. Para que incluya el capital inicial, regístrelo en el Balance General.
+      </div>`:''}
+    </div>`;
+
+  el.innerHTML=summaryHtml+tableHtml;
 }
 
 // ── UPDATE ALL ─────────────────────────────────────────────────────────
