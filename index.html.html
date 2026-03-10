@@ -1080,7 +1080,13 @@ const firebaseConfig={
   messagingSenderId:"649219982931",
   appId:"1:649219982931:web:35b397d4903996f08e68a6"
 };
-const ADMIN_EMAIL='gilardi.giulio@gmail.com';
+// ── USUARIOS ADMINISTRADORES ─────────────────────────────────────────
+// Para agregar un nuevo admin, simplemente añade su correo a esta lista.
+// Los demás usuarios creados en Firebase Auth entran como "Secretaria".
+const ADMIN_EMAILS=[
+  'gilardi.giulio@gmail.com',
+  // 'nuevo.admin@ejemplo.com', // ← descomenta y edita para agregar otro admin
+];
 let currentUser=null,isAdmin=false;
 let unsubscribeTx=null,unsubscribeCpx=null,unsubNotif=null;
 
@@ -1154,7 +1160,7 @@ async function doReset(){
 function showLoginErr(msg){const el=document.getElementById('login-err');if(el){el.textContent=msg;el.style.display='block';}}
 
 auth.onAuthStateChanged(async user=>{
-  if(user){currentUser=user;isAdmin=(user.email===ADMIN_EMAIL);await initApp();}
+  if(user){currentUser=user;isAdmin=ADMIN_EMAILS.includes(user.email);await initApp();}
   else{
     currentUser=null;isAdmin=false;
     [unsubscribeTx,unsubscribeCpx,unsubNotif].forEach(u=>{if(u)u();});
@@ -2296,7 +2302,6 @@ function saveCategory(){
   categories[type].push(name);
   if(type===txType) refreshCats();
   document.getElementById('nc-name').value='';
-  fbSaveMeta('categories',categories);
   fbSaveMeta('categories',categories);
   closeModal('m-cat');showToast(`Categoría "${name}" agregada.`);
 }
