@@ -1675,7 +1675,7 @@ async function saveEdit(){
     transactions[idx]=updated;
     const old=document.getElementById(`tx-${id}`);
     if(old){const tmp=document.createElement('div');tmp.id=`tx-${id}-tmp`;old.replaceWith(tmp);renderTx(updated,false);document.getElementById(`tx-${id}`)&&tmp.replaceWith(document.getElementById(`tx-${id}`));}
-    await fbUpdateTx(tx.id,tx);
+    await fbUpdateTx(updated.id,updated);
     closeModal('m-edit');showToast('✅ Movimiento actualizado.');
   }catch(e){showToast('Error al guardar: '+e.message);console.error(e);}
   btn.disabled=false;btn.textContent='Guardar';
