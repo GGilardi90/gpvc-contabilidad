@@ -1080,7 +1080,7 @@ const FIN_TYPES={
 
 let categories={
   income:['Ingresos por servicios','Otros ingresos'],
-  expense:['Planillas y remuneraciones','Alquiler y servicios','Servicios de terceros','Marketing y publicidad','Gastos operativos','Otros gastos'],
+  expense:['Planillas y remuneraciones','Alquiler y servicios','Servicios de terceros','Marketing y publicidad','Gastos operativos','Otros gastos','Pago a accionista (44)'],
   asset:['Garantía de alquiler (16)','Depósito en garantía (18)','Préstamo otorgado a tercero (16)','Anticipo a proveedor (18)','Otros activos corrientes']
 };
 
@@ -1444,6 +1444,10 @@ function buildEntries(tx){
     return[row(cp,cpNombre,t,0),row('70','Ventas de servicios',0,t)];
   }
   if(type==='expense'){
+    // Pago a accionista: DB 44 / CR 10 (cancelación de pasivo, sin gasto)
+    if(category==='Pago a accionista (44)'){
+      return[row('44','Préstamos de accionistas',t,0),row('10','Efectivo y equivalentes de efectivo',0,t)];
+    }
     const gastoCuenta={'Planillas y remuneraciones':['621','Remuneraciones'],'Alquiler y servicios':['636','Alquileres'],'Servicios de terceros':['632','Asesoría y consultoría'],'Marketing y publicidad':['637','Publicidad y propaganda'],'Gastos operativos':['639','Otros servicios prestados por terceros'],'Otros gastos':['659','Otros gastos de gestión']}[category]||['639','Gastos de gestión'];
     const[gcta,gnomb]=gastoCuenta;
     if(igvApplies) return[row(gcta,gnomb,b,0),row('40111','IGV — Crédito fiscal',v,0),row(cp,cpNombre,0,t)];
